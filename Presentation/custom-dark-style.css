@@ -1,0 +1,49 @@
+.dataTables_wrapper {
+    color: #fff;
+}
+
+.table {
+    background-color: #222;
+}
+
+.table th {
+    background-color: #333;
+}
+
+.table td {
+    border-color: #444;
+}
+
+#TOC {
+    border-left: 3px solid #17a2b8;
+    padding-left: 1em;
+    background: #343a40;
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+#TOC ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#TOC li {
+    margin-bottom: 0.5em; 
+    border: 1px solid #495057; 
+    background-color: #3c3f43; 
+    padding: 0.5em; 
+    border-radius: 5px; 
+}
+
+#TOC li a {
+    color: #adb5bd; 
+    text-decoration: none; 
+    display: block;
+}
+
+#TOC li a:hover {
+    background-color: #495057;
+    color: #ffffff;
+    border-color: #17a2b8;
+}

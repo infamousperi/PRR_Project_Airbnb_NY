@@ -1,0 +1,669 @@
+---
+title: "Die teuersten AirBnbs in New York"
+format: 
+  html:
+    theme: darkly
+    css: custom-dark-style.css
+toc: true
+toc-title: "Inhaltsverzeichnis"
+toc-depth: 2
+---
+
+# [Methodik:]{.underline}
+
+Unsere Daten für das Projekt und die Analyse haben wir von Kaggle.com genommen.
+
+<https://www.kaggle.com/datasets/thedevastator/airbnbs-nyc-overview>
+
+## [Vorgehensweise:]{.underline}
+
+1.  Schritt: Analyse, der von Kaggle zur Verfügung gestellten Daten
+2.  Schritt: Festlegung der Plots, die dargestellt werden sollen
+3.  Schritt: Aufbereitung der Daten mit R
+4.  Schritt: Programmierung der Plots
+
+Für die Programmierung wurden hauptsächlich die offiziellen Seiten der Bibliotheken Plotly und Leaftlet verwendet.
+
+## [Fragestellung:]{.underline}
+
+Wo liegen in New York die teuersten AirBnbs?
+
+## [Aufgabgenstellung:]{.underline}
+
+Unsere Aufgabenstellung war es mit den Libraries Leaflet und Plotly unsere Resultate und Analyse darzustellen. Bei der Analyse handelte es sich darum, wo sich die teuersten AirBnbs in New York befinden.
+
+### Installation der Libraries
+
+```{r setup}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+```{r}
+#install.packages("tidyverse")
+#install.packages("plotly")
+#install.packages("DT")
+#install.packages("rjson")
+#install.packages("leaflet")
+#install.packages("RColorBrewer")
+#install.packages("sf")
+```
+
+### Laden der Libraries
+
+```{r}
+library(dplyr)
+library(plotly)
+library(DT)
+library(rjson)
+library(leaflet)
+library(RColorBrewer)
+library(sf)
+```
+
+### Einlesen von Dateien
+
+```{r}
+
+data <- read.csv("Data/train.csv", sep = ",")
+#Einlesen der Bezirksdaten von New York: https://data.beta.nyc/dataset/pediacities-nyc-neighborhoods/resource/35dd04fb-81b3-479b-a074-a27a37888ce7
+county_data <- fromJSON(file="Data/nyc_geojson.json")
+
+# View the first few rows of the data
+datatable(head(data))
+```
+
+### Berechnung minimum Preis
+
+Hier wird berechnet, wie hoch der minimum Betrag ist, der gezahlt werden muss, um in den entsprechenden Unterkünften hausen zu können.
+
+```{r}
+data <- data %>%
+  mutate(min_price_to_pay = minimum_nights * price)
+```
+
+### Nachbarschaften und deren Anzahl Airbnb's
+
+Hier werden die Anzahl Airbnb's pro Nachbarschaft dargestellt in einem neuen Dataframe für die Übersichtlichkeit.
+
+```{r}
+listings_per_neighborhood <- data %>% count(data$neighbourhood)
+datatable(listings_per_neighborhood)
+```
+
+### Nachbarschaftsgruppen ("Bezirke") und deren Anzahl Airbnb's
+
+Hier werden die Anzahl Airbnb's pro Nachbarschaftsgruppe("Bezirk") dargestellt in einem neuen Dataframe für die Übersichtlichkeit.
+
+```{r}
+listings_per_neighborhood_group <- data %>% count(data$neighbourhood_group)
+datatable(listings_per_neighborhood_group)
+```
+
+# [Analyse: Preis pro Nacht]{.underline}
+
+Dieser Part geht es ausschlieslich um den Preis pro Nacht aller Airbnb's um herauszufinden welche am teuersten nach diesem Kriterium sind.
+
+### Sortierung der Preiskategorien
+
+Hier wurden die Preise pro Nacht kategorisiert.
+
+```{r}
+grouped_by_price_range <- data %>%
+  mutate(PriceCategory = case_when(
+    price >= 0 & price <= 100 ~ "low ($0 - $100)",
+    price > 100 & price <= 250 ~ "medium ($100 - $250)",
+    price > 250 & price <= 1000 ~ "high ($250 - $1000)",
+    price > 1000 ~ "very high ($1000)"
+  ))
+```
+
+## Histogramm Price per Night
+
+Mitden vorhin kategorisierten Daten, konnten wir dies in einem Histogramm darstellen.
+
+```{r}
+fig <- plot_ly(
+  grouped_by_price_range,
+  x = ~PriceCategory,
+  type = "histogram"
+)
+
+fig <- fig %>% layout(title = "Histogram price per night", xaxis = list(categoryorder = "array", categoryarray = c("low ($0 - $100)", "medium ($100 - $250)", "high ($250 - $1000)", "very high ($1000)")))
+
+fig
+```
+
+## Boxplot Preis pro Nacht
+
+Hier wurde der Preis pro Nacht aller Airbnb's dargestellt.
+
+Wie man hier sieht, kann man aus dem nicht wirklich Schlüsse ziehen, ausser das es einige Ausreisser gibt die mehrere Tausend Dollar pro Nacht kosten.
+
+```{r}
+#boxplot(data$price, main="Boxplot for Pricing", ylab="Price per Night")
+boxplot <- plot_ly(df = data, x = ~data$price, type = "box", name = "Price per Night")
+
+# Add layout options (optional)
+boxplot <- boxplot %>% layout(title = "Boxplot Price per Night", xaxis = list(title = "Price per Night"))
+
+# Show the plot
+boxplot
+```
+
+## Boxplot Preis pro Nacht / Nachbarschaftsgruppe
+
+Hier wurde der Preis pro nacht aller Airbnb's dargestellt, aber gefiltert nach der Nachbarschaftsgruppe.
+
+Wie man hier sieht, kann man aus dieser Version schon bessere Schlüsse ziehen.
+
+Manhatten und Brooklyn stechen stark heraus mit ihren vielen Teuren Airbnb's.
+
+Die anderen Nachbarschaftsgruppen sind im vergleich nicht so teuer.
+
+```{r}
+fig <- plot_ly(data, x = ~price, color = ~neighbourhood_group, type = "box")%>%
+  layout(title = 'Boxplot Price per Night of Neighborhoodgroups',
+           xaxis = list(title = 'Price per Night'))
+
+fig
+```
+
+## Preisverhältnis Nachbarschaften: Choropleth Map
+
+Um die Kosten der Nachbarschaften zu vergleichen haben wir die Kosten pro Nachbarschaft in einer Choropleth Map dargestellt. Damit einzelne Ausreisser die Daten nicht zu stark beinflussen, haben wir uns entschieden den robusteren Wert "Median" zu verwenden.
+
+Um die Daten pro Nachbarschaft einfacher vergleichen zu können, wurden die Daten in einem neuen Dataframe dargestellt. Die Ausgabe des Dataframes dient lediglich der Veranschaulichung.
+
+```{r}
+price_summary <- data %>%
+  group_by(neighbourhood) %>%
+  summarise(
+    min_price = min(price, na.rm = TRUE), 
+    max_price = max(price, na.rm = TRUE),
+    median_price = median(price, na.rm = TRUE)
+  )
+
+datatable(price_summary)
+```
+
+Als Input für die Choropleth Map wurde das zuvor erstellte DataFrame verkleinert, um ein kleineres DataFrame zu erhalten, das die Nachbarschaft und die Kosten für die teuerste Unterkunft in jeder Nachbarschaft repräsentiert.
+
+```{r}
+neighborhood_max_price <- price_summary[, c("neighbourhood", "max_price")]
+datatable(neighborhood_max_price)
+```
+
+Im folgenden werden die Daten in einer Choropleth Map dargestellt.
+
+```{r}
+url <- 'Data/nyc_geojson.json'
+
+geojson <- rjson::fromJSON(file=url)
+
+g <- list(
+  fitbounds = "locations",
+  visible = FALSE
+)
+fig <- plot_ly() 
+fig <- fig %>% add_trace(
+    type="choropleth",
+    geojson=geojson,
+    locations=neighborhood_max_price$neighbourhood,
+    z=neighborhood_max_price$max_price,
+    colorscale="Viridis",
+    featureidkey="properties.neighborhood"
+  )
+fig <- fig %>% layout(
+    geo = g
+  )
+fig <- fig %>% colorbar(title = "AirBnB Cost")
+fig <- fig %>% layout(
+    title = "AirBnB Cost per Night in New York"
+)
+fig
+```
+
+## [Teuerste Airbnb's nach Room Type mit Preis pro Nacht]{.underline}
+
+Hier werden die Anzahl Airbnb's pro Roomtype dargestellt in einem neuen Dataframe, um eine bessere Übersich gewähleisten zu können.
+
+```{r}
+listings_per_room_type <- data %>% count(data$room_type)
+datatable(listings_per_room_type)
+```
+
+### [Filtern der Top 10 teuersten Airbnb's nach Roomtype pro Nachbarschaftsgruppe(Bezirk)]{.underline}
+
+Hier werden die teuersten Airbnb's pro Nachbarschaftsgruppe und Roomtype gefiltert und jeweils in ein seperates Dataframe abgespeichert.
+
+```{r}
+top_listings_home_apt_ng <- data %>%
+  filter(room_type == "Entire home/apt") %>%
+  group_by(neighbourhood_group) %>%
+  top_n(10, price) %>%
+  ungroup()
+
+top_listings_private_room_ng <- data %>%
+  filter(room_type == "Private room") %>%
+  group_by(neighbourhood_group) %>%
+  top_n(10, price) %>%
+  ungroup()
+
+top_listings_shared_room_ng <- data %>%
+  filter(room_type == "Shared room") %>%
+  group_by(neighbourhood_group) %>%
+  top_n(10, price) %>%
+  ungroup()
+```
+
+#### Funktion für Mapplot mittels Leaflet
+
+Diese Funktion wurde erstellt um verschiedene Maps mit unterschiedlichen Datensätzen zu plotten.
+
+Dies verhindert auch, das wir keinen Code repetieren.
+
+```{r}
+create_neighbourhood_map <- function(top_listings) {
+
+    #Farbpalete wird pro Nachbarschaftsgruppe erstellt, um diese konstant zu halten
+    fixed_colors <- c(
+        "Bronx" = "#E41A1C",       # Red
+        "Brooklyn" = "#377EB8",    # Blue
+        "Manhattan" = "#4DAF4A",   # Green
+        "Queens" = "#984EA3",      # Purple
+        "Staten Island" = "#FF7F00" # Orange
+    )
+    
+    neighbourhoods <- c("Bronx", "Brooklyn", "Manhattan", "Queens", "Staten Island")
+    
+    palette <- colorFactor(
+        palette = fixed_colors,
+        domain = neighbourhoods
+    )
+    
+    #Mittels der Längen und Breitengrade der Airbnb's werden Markierungen auf der      Karte erstellt
+    map <- leaflet(top_listings) %>% 
+      addTiles() %>% 
+      addCircleMarkers(
+        ~longitude, 
+        ~latitude, 
+        popup = ~paste(
+            "Name: ", name, "<br>", 
+            "Price: $", price, "<br>", 
+            "Neighbourhood: ", neighbourhood, "<br>",
+            "Minimum Nights: ", minimum_nights, "<br>", 
+            "Min Price to Pay: $", min_price_to_pay,
+            sep = ""
+        ),
+        radius = 4, 
+        fillColor = ~palette(neighbourhood_group), 
+        fillOpacity = 0.8, 
+        color = "black",  # Outline color
+        stroke = TRUE, 
+        weight = 2        # Outline thickness
+      )
+    
+    #Basierend auf der Farbpalette wird eine Legende erstellt
+    map %>% addLegend(
+        position = "bottomright",
+        pal = palette,
+        values = neighbourhoods,
+        title = "Neighbourhood Group",
+        opacity = 0.7
+    )
+}
+```
+
+#### Top 10 teuersten Home/Apartment pro Nachbarschaftsgruppe Airbnb's - Leaflet Map
+
+Hier werden die teuersten Airbnb's pro Nachbarschaftsgruppe in einer Leaflet Map angezeigt, die den Roomtype "Home/Apartment" haben.
+
+```{r}
+m_home_apt <- create_neighbourhood_map(top_listings_home_apt_ng)
+m_home_apt
+```
+
+#### Top 10 teuersten Private Room Airbnb's pro Nachbarschaftsgruppe - Leaflet Map
+
+Hier werden die teuersten Airbnb's pro Nachbarschaftsgruppe in einer Leaflet Map angezeigt, die den Roomtype "Private Room" haben.
+
+```{r}
+m_private_room <- create_neighbourhood_map(top_listings_private_room_ng)
+m_private_room
+```
+
+#### Top 10 teuersten Shared Room Airbnb's pro Nachbarschaftsgruppe - Leaflet Map
+
+Hier werden die teuersten Airbnb's pro Nachbarschaftsgruppe in einer Leaflet Map angezeigt, die den Roomtype "Shared Room" haben.
+
+```{r}
+m_shared_room <- create_neighbourhood_map(top_listings_shared_room_ng)
+m_shared_room
+```
+
+### [Filtern der Top 10 teuersten Airbnb's nach Roomtype Generell]{.underline}
+
+Hier werden die teuersten Airbnb's pro Roomtype gefiltert und jeweils in ein seperates Dataframe abgespeichert. Hier wird nicht wie vorhin die Nachbarschaftsgruppe("Bezirk") beachtet um die absolut teuersten Airbnb's herauszufiltern.
+
+```{r}
+top_listings_home_apt_all <- data %>%
+  filter(room_type == "Entire home/apt") %>%
+  top_n(10, price) %>%
+  ungroup()
+
+top_listings_private_room_all <- data %>%
+  filter(room_type == "Private room") %>%
+  top_n(10, price) %>%
+  ungroup()
+
+top_listings_shared_room_all <- data %>%
+  filter(room_type == "Shared room") %>%
+  top_n(10, price) %>%
+  ungroup()
+```
+
+#### Top 10 teuersten Home/Apartment Airbnb's Generell - Leaflet Map
+
+Hier werden die teuersten Airbnb's in einer Leaflet Map angezeigt, die den Roomtype "Home/Apartment" haben.
+
+Wie man hier sehen kann, werden die teuersten "Home/Apartments" von Brooklyn und Manhatten dominiet.
+
+```{r}
+m_home_apt_all <- create_neighbourhood_map(top_listings_home_apt_all)
+m_home_apt_all
+```
+
+#### Top 10 teuersten Private Room Airbnb's Generell - Leaflet Map
+
+Hier werden die teuersten Airbnb's in einer Leaflet Map angezeigt, die den Roomtype "Private Room" haben.
+
+Wie man hier sehen kann, werden die teuersten "Private Rooms" von Brooklyn und Manhatten dominiet, mit einer Ausnahme aus Queens.
+
+```{r}
+m_private_room_all <- create_neighbourhood_map(top_listings_private_room_all)
+m_private_room_all
+```
+
+#### Top 10 teuersten Shared Room Airbnb's Generell - Leaflet Map
+
+Hier werden die teuersten Airbnb's in einer Leaflet Map angezeigt, die den Roomtype "Shared Room" haben.
+
+Wie man hier sehen kann, werden die teuersten "Shared" von Manhatten und Queens dominiet, mit zwei Ausnahme aus Bronx und Brooklyn.
+
+```{r}
+m_shared_room_all <- create_neighbourhood_map(top_listings_shared_room_all)
+m_shared_room_all
+```
+
+### [Filtern der Top 10 absolut teuersten Airbnb's]{.underline}
+
+Hier werden die teuersten Airbnb's nach Preis pro Nacht gefiltert, um die absolut teuersten Airbnb's zu bekommen.
+
+```{r}
+top_listings_all_p <- data %>%
+  top_n(10, price) %>%
+  ungroup()
+```
+
+Nun wurden den teuersten Airbnb's nach Preis pro Nacht sortiert für die Veranschaulichung.
+
+```{r}
+top_listings_all_p_sorted <- top_listings_all_p[order
+(top_listings_all_p$price, decreasing = TRUE), 
+c("name", "neighbourhood_group", "neighbourhood", "price")]
+
+datatable(top_listings_all_p_sorted)
+```
+
+#### Top 10 absolut teuersten Airbnb's - Leaflet Map
+
+Hier werden die absolut teuersten Airbnb's in einer Leaflet Map angezeigt.
+
+Wie man hier sehen kann, werden die absolut teuersten Airbnb's von Manhatten und Brooklyn dominiet, mit einer ausnahme aus Queens.
+
+```{r}
+m_all_p <- create_neighbourhood_map(top_listings_all_p)
+m_all_p
+```
+
+# [**Analyse: Minimum Price to Pay**]{.underline}
+
+Dieser Part geht es ausschlieslich um den minimum Preis aller Airbnb's um herauszufinden welche am teuersten nach diesem Kriterium sind.
+
+Der minimum Preis ergibt sich wenn man Preis pro Nacht und minimum Nächte multipliziert um den wahren Wert den man bezahlen muss zu berechnen.
+
+### Sortierung der Preiskategorien
+
+Hier wurden die minimum Preise kategorisiert.
+
+```{r}
+grouped_by_price_range_mp <- data %>%
+  mutate(PriceCategory = case_when(
+    min_price_to_pay >= 0 & min_price_to_pay <= 100 ~ "low ($0 - $100)",
+    min_price_to_pay > 100 & min_price_to_pay <= 250 ~ "medium ($100 - $250)",
+    min_price_to_pay > 250 & min_price_to_pay <= 1000 ~ "high ($250 - $1000)",
+    min_price_to_pay > 1000 ~ "very high ($1000+)"
+  ))
+```
+
+## Histogramm minimum Preis
+
+Mitden vorhin kategorisierten Daten, konnten wir dies in einem Histogramm darstellen.
+
+```{r}
+fig <- plot_ly(
+  grouped_by_price_range_mp,
+  x = ~PriceCategory,
+  type = "histogram"
+)
+
+fig <- fig %>% layout(title = "Histogram Min Price to pay", xaxis = list(categoryorder = "array", categoryarray = c("low ($0 - $100)", "medium ($100 - $250)", "high ($250 - $1000)", "very high ($1000+)")))
+
+fig
+```
+
+## Boxplot minimum Preis / Nachbarschaftsgruppe
+
+Hier wurde der minimum Preis aller Airbnb's dargestellt, aber gefiltert nach der Nachbarschaftsgruppe.
+
+Man sieht ihr eindeutig, das die teuersten Airbnb's mittels nur dem Preis pro Nacht, nicht die ganze wahrheit zeigen.
+
+Die teuersten Airbnb's sind hier in Manhatten und Queens stationiert.
+
+Da gibt es sogar eine in Manhatten die mehr als 1Mio Dollar kostet.
+
+Diese bizarren Preise scheinen mehr nach einem Mietvertrag für Penthouses als für Airbnb's.
+
+```{r}
+fig <- plot_ly(data, x = ~min_price_to_pay, color = ~neighbourhood_group, type = "box")%>%
+  layout(title = 'Boxplot Price per Night of Neighborhoodgroups',
+           xaxis = list(title = 'Price per Night'))
+
+fig
+```
+
+## Scatterplot minimum Preis der teuersten Airbnb's
+
+Hier werden die zusammenhänge von Preis pro Nacht und minimum Nächte gezeigt, welche zum minimum Preis führen.
+
+Wie man hier gut sehen kann, ergibt sich ein hoher minimum Preis durch einen hohen Preis pro Nacht oder einer absurden Anzahl minimum Nächte.
+
+```{r}
+top_listings_all_mp <- data %>%
+  top_n(10, min_price_to_pay) %>%
+  ungroup()
+
+fig <- plot_ly(
+  top_listings_all_mp, x = ~minimum_nights, y = ~price,
+  color = ~min_price_to_pay
+)%>%
+layout(title = "Scatterplot Min. Price to Pay")
+
+fig
+```
+
+## Preisverhältnis Nachbarschaften: Choropleth Map
+
+```{r}
+price_summary_mp <- data %>%
+  group_by(neighbourhood) %>%
+  summarise(
+    min_price = min(min_price_to_pay, na.rm = TRUE), 
+    max_price = max(min_price_to_pay, na.rm = TRUE),
+    median_price = median(min_price_to_pay, na.rm = TRUE)
+  )
+```
+
+```{r}
+neighborhood_max_mp <- price_summary_mp[, c("neighbourhood", "max_price")]
+```
+
+```{r}
+url <- 'Data/nyc_geojson.json'
+
+geojson <- rjson::fromJSON(file=url)
+
+g <- list(
+  fitbounds = "locations",
+  visible = FALSE
+)
+fig <- plot_ly() 
+fig <- fig %>% add_trace(
+    type="choropleth",
+    geojson=geojson,
+    locations=neighborhood_max_mp$neighbourhood,
+    z=neighborhood_max_mp$max_price,
+    colorscale="Viridis",
+    featureidkey="properties.neighborhood"
+  )
+fig <- fig %>% layout(
+    geo = g
+  )
+fig <- fig %>% colorbar(title = "AirBnB Cost")
+fig <- fig %>% layout(
+    title = "AirBnB Max Price to pay in New York"
+)
+fig
+```
+
+## [Teuerste Airbnb's nach Room Type mit minimum Preis]{.underline}
+
+### [Filtern der Top 10 teuersten Airbnb's nach Roomtype Generell]{.underline}
+
+Hier werden die teuersten Airbnb's nach minimum Preis pro Roomtype gefiltert und jeweils in ein seperates Dataframe abgespeichert.
+
+```{r}
+top_listings_home_apt_all_mp <- data %>%
+  filter(room_type == "Entire home/apt") %>%
+  top_n(10, min_price_to_pay) %>%
+  ungroup()
+
+top_listings_private_room_all_mp <- data %>%
+  filter(room_type == "Private room") %>%
+  top_n(10, min_price_to_pay) %>%
+  ungroup()
+
+top_listings_shared_room_all_mp <- data %>%
+  filter(room_type == "Shared room") %>%
+  top_n(10, min_price_to_pay) %>%
+  ungroup()
+```
+
+#### Top 10 teuersten Home/Apartment Airbnb's Generell - Leaflet Map
+
+Hier werden die teuersten Airbnb's in einer Leaflet Map angezeigt, die den Roomtype "Home/Apartment" haben.
+
+Wie man hier sehen kann, werden die teuersten "Home/Apartments" von Brooklyn und Manhatten dominiet, mit einer Ausnahme aus Queens.
+
+```{r}
+m_home_apt_all_mp <- create_neighbourhood_map(top_listings_home_apt_all_mp)
+m_home_apt_all_mp
+```
+
+#### Top 10 teuersten Private Room Airbnb's Generell - Leaflet Map
+
+Hier werden die teuersten Airbnb's in einer Leaflet Map angezeigt, die den Roomtype "Private Room" haben.
+
+Wie man hier sehen kann, werden die teuersten "Home/Apartments" von Manhatten dominiet, mit gleichmässig verteilten teuren airbnb's in Brooklyn und Queens.
+
+```{r}
+m_private_room_all_mp <- create_neighbourhood_map(top_listings_private_room_all_mp)
+m_private_room_all_mp
+```
+
+#### Top 10 teuersten Shared Room Airbnb's Generell - Leaflet Map
+
+Hier werden die teuersten Airbnb's in einer Leaflet Map angezeigt, die den Roomtype "Shareed Room" haben.
+
+Wie man hier sehen kann, werden die teuersten "Home/Apartments" von Manhatten dominiet, mit zwei Ausnahmen aus Brooklyn und Queens.
+
+```{r}
+m_shared_room_all_mp <- create_neighbourhood_map(top_listings_shared_room_all_mp)
+m_shared_room_all_mp
+```
+
+### [Filtern der Top 10 absolut teuersten Airbnb']{.underline}
+
+Hier werden die teuersten Airbnb's nach minimum Preis gefiltert, um die absolut teuersten Airbnb's zu bekommen.
+
+```{r}
+top_listings_all_mp <- data %>%
+  top_n(10, min_price_to_pay) %>%
+  ungroup()
+```
+
+Nun wurden den teuersten Airbnb's nach minimum Preis sortiert für die Veranschaulichung.
+
+```{r}
+top_listings_all_mp_sorted <- top_listings_all_mp[order(top_listings_all_mp$min_price_to_pay, decreasing = TRUE), 
+c("name", "neighbourhood_group", "neighbourhood", "min_price_to_pay")]
+
+datatable(top_listings_all_mp_sorted)
+```
+
+#### Top 10 absolut teuersten Airbnb's - Leaflet Map
+
+Hier werden die absolut teuersten Airbnb's in einer Leaflet Map angezeigt.
+
+Wie man hier sehen kann, werden die absolut teuersten Airbnb's von Manhatten dominiet, mit gleichmässig verteilten teuren Airbnb's in Brooklyn und Queens.
+
+```{r}
+m_all_mp <- create_neighbourhood_map(top_listings_all_mp)
+m_all_mp
+```
+
+# Fazit
+
+### Zusammenfassung der Ziele:
+
+Unser Ziel war es mit diesem Projekt die teuersten Airbnb's New Yorks zu finden und diese Mithilfe von den Libraries Plotly und Leaflet für den Benutzer übersichtlich darzustellen. Zudem haben wir weitere Analysen gemacht, um dem Benutzer zu zeigen welche Art von Unterkünfte New York hat. Die dafür verwendeten Daten haben wir von der Seite Kaggle.com genommen.
+
+Für die Darstellung haben wir von den Libraries Leaflet und Plotly choropleth Maps, historgramme, maps, scatter plots und boxplots verwendet.
+
+### Ergebnisse und Erkenntnisse:
+
+Grundsätzlich gilt New York als eine der teuersten Ortschaften der Welt. Die teuersten Airbnb in New York liegen in sehr zentral. Ebenfalls ist ersichtlich, dass die teuersten Unterkünfte sich am Gewässer, wie zum Beispiel am Hudson River, befinden. Dies könnte ebenfalls eine Folge der erhöhten Nachfrage und der Platzknappheit liegen.
+
+Die meisten Unterkünfte der höchsten Preisklasse befinden sich zentral in Manhattan.
+
+### Herausforderungen:
+
+Die grösste Herausforderung für uns war das Recherchieren der Bibliotheken und deren Funktionen. Um die Choropleth Maps mit unseren Daten zu füttern brauchten wir eine Json-Datei, die über alle Daten über New York und dessen Nachbarschaften verfügte. Diese Datei musste ebenfalls mit den Daten übereinstimmen, die wir von Kaggle erhalten haben. Um eine solche Json-Datei zu finden haben wir lange recherchiert und sind auf eine Webseite gestossen, die genau solch eine Datei zur Verfügung gestellt hat. Diese konnten wir schlussendlich mit wenigen Modifizierungen im Code verwenden.
+
+Die Programmierumgebung in RStudio hat uns ein paar wenige Schwierigkeiten bereitet, da diese zum Teil Bugs hervorbrachte bei der Visualisation der Ergebnisse. Dies konnte aber schnell durch einen Neustart der IDE geklärt werden.
+
+### Verbesserungen:
+
+In einem weiteren Schritt könnte eine Webpage erstellt werden, auf der man eine bestimmte Stadt suchen kann und eine Map erhält auf der ersichtlich ist, wo die teuersten Airbnbs sich befinden.
+
+### Quellen:
+
+<https://www.rdocumentation.org/packages/leaflet/versions/2.2.1>
+
+<https://plotly.com/r/>
+
+<https://spaces.technik.fhnw.ch/spaces/explorative-datenanalyse>
+
+<https://spaces.technik.fhnw.ch/spaces/programmieren-in-r>
+
+<https://bookdown.org/nicohahn/making_maps_with_r5/docs/leaflet.html>
